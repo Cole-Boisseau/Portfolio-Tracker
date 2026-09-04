@@ -257,6 +257,30 @@ const defaultSettings: Settings = {
   language: "en"
 };
 
+const devicePreferencesKey = "portfolio-device-preferences";
+
+function readDevicePreferences(): Partial<Pick<Settings, "language" | "currency">> {
+  try {
+    const stored = window.localStorage.getItem(devicePreferencesKey);
+    if (!stored) return {};
+    const parsed = JSON.parse(stored) as { language?: unknown; currency?: unknown };
+    return {
+      ...(isLanguageCode(parsed.language) ? { language: parsed.language } : {}),
+      ...(isCurrencyCode(parsed.currency) ? { currency: parsed.currency } : {})
+    };
+  } catch {
+    return {};
+  }
+}
+
+function saveDevicePreferences(language: LanguageCode, currency: CurrencyCode) {
+  try {
+    window.localStorage.setItem(devicePreferencesKey, JSON.stringify({ language, currency }));
+  } catch {
+    // Private browsing or restricted storage should not block onboarding.
+  }
+}
+
 const CurrencyContext = createContext<ExchangeRateState>({ currency: "USD", rate: 1 });
 const LanguageContext = createContext({
   language: "en" as LanguageCode,
@@ -568,22 +592,35 @@ export function Dashboard() {
   }
 
   async function completeLanguageSelection(language: LanguageCode, currency: CurrencyCode) {
-    const previousSettings = settings;
-    const previousRate = exchangeRate;
+    let effectiveCurrency = currency;
     setLanguageSaving(true);
     setSettings((current) => ({ ...current, language, currency }));
+    saveDevicePreferences(language, currency);
+    setShowLanguagePrompt(false);
+
+    let syncFailed = false;
     try {
       if (currency !== exchangeRate.currency) {
         await loadExchangeRate(currency);
       }
-      await api("/api/settings", { method: "PUT", body: JSON.stringify({ language, currency }) });
-      setShowLanguagePrompt(false);
-    } catch (languageError) {
-      setSettings(previousSettings);
-      setExchangeRate(previousRate);
-      setError(errorMessage(languageError, translate(language, "requestFailed")));
+    } catch {
+      syncFailed = true;
+      setSettings((current) => ({ ...current, currency: "USD" }));
+      setExchangeRate({ currency: "USD", rate: 1 });
+      saveDevicePreferences(language, "USD");
+      effectiveCurrency = "USD";
+    }
+
+    try {
+      await api("/api/settings", { method: "PUT", body: JSON.stringify({ language, currency: effectiveCurrency }) });
+    } catch {
+      syncFailed = true;
     } finally {
       setLanguageSaving(false);
+    }
+
+    if (syncFailed) {
+      setNotice({ tone: "info", message: translate(language, "preferencesSavedOnDevice") });
     }
   }
 
@@ -782,27 +819,58 @@ export function Dashboard() {
   }
 
   useEffect(() => {
-    api<Partial<Settings>>("/api/settings")
-      .then(async (stored) => {
-        const currency = isCurrencyCode(stored.currency) ? stored.currency : "USD";
-        const language: LanguageCode = isLanguageCode(stored.language) ? stored.language : "en";
-        const hasSavedLanguage = isLanguageCode(stored.language);
-        const nextSettings = { ...defaultSettings, ...stored, currency, language };
-        setShowLanguagePrompt(!hasSavedLanguage);
-        try {
-          await loadExchangeRate(currency);
-          setSettings(nextSettings);
-          if (window.sessionStorage.getItem("portfolio-backup-restored") === "true") {
-            window.sessionStorage.removeItem("portfolio-backup-restored");
-            setNotice({ tone: "success", message: translate(language, "backupRestored") });
-          }
-        } catch (rateError) {
-          setSettings({ ...nextSettings, currency: "USD" });
-          setExchangeRate({ currency: "USD", rate: 1 });
-          setError(errorMessage(rateError, t("unableUpdateSettings")));
-        }
-      })
-      .catch(() => setShowLanguagePrompt(true));
+    async function loadInitialSettings() {
+      const device = readDevicePreferences();
+      let stored: Partial<Settings> = {};
+      let serverAvailable = true;
+
+      try {
+        stored = await api<Partial<Settings>>("/api/settings");
+      } catch {
+        serverAvailable = false;
+      }
+
+      const currency = isCurrencyCode(stored.currency)
+        ? stored.currency
+        : isCurrencyCode(device.currency)
+          ? device.currency
+          : "USD";
+      const language: LanguageCode = isLanguageCode(stored.language)
+        ? stored.language
+        : isLanguageCode(device.language)
+          ? device.language
+          : "en";
+      const hasSavedLanguage = isLanguageCode(stored.language) || isLanguageCode(device.language);
+      const nextSettings = { ...defaultSettings, ...stored, currency, language };
+      let effectiveCurrency = currency;
+
+      setShowLanguagePrompt(!hasSavedLanguage);
+      if (hasSavedLanguage) saveDevicePreferences(language, currency);
+
+      try {
+        await loadExchangeRate(currency);
+        setSettings(nextSettings);
+      } catch {
+        setSettings({ ...nextSettings, currency: "USD" });
+        setExchangeRate({ currency: "USD", rate: 1 });
+        if (hasSavedLanguage) saveDevicePreferences(language, "USD");
+        effectiveCurrency = "USD";
+      }
+
+      if (serverAvailable && !isLanguageCode(stored.language) && hasSavedLanguage) {
+        void api("/api/settings", {
+          method: "PUT",
+          body: JSON.stringify({ language, currency: effectiveCurrency })
+        }).catch(() => undefined);
+      }
+
+      if (window.sessionStorage.getItem("portfolio-backup-restored") === "true") {
+        window.sessionStorage.removeItem("portfolio-backup-restored");
+        setNotice({ tone: "success", message: translate(language, "backupRestored") });
+      }
+    }
+
+    void loadInitialSettings();
     loadSummary();
     const id = window.setInterval(() => loadSummary(true), 30 * 60 * 1000);
     return () => window.clearInterval(id);
@@ -2420,9 +2488,9 @@ function LanguagePrompt({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-foreground/35 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 min-h-full overflow-y-auto overscroll-contain bg-foreground/35 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur-sm sm:grid sm:place-items-center">
       <form
-        className="w-full max-w-md rounded-lg border bg-card p-5 shadow-2xl sm:p-6"
+        className="mx-auto w-full min-w-0 max-w-[calc(100vw-2rem)] rounded-lg border bg-card p-5 shadow-2xl sm:max-w-md sm:p-6"
         role="dialog"
         aria-modal="true"
         aria-labelledby="language-prompt-title"
@@ -2435,8 +2503,8 @@ function LanguagePrompt({
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
             <Languages className="h-5 w-5" />
           </div>
-          <div>
-            <h2 id="language-prompt-title" className="text-lg font-semibold">{prompt("chooseLanguage")}</h2>
+          <div className="min-w-0">
+            <h2 id="language-prompt-title" className="break-words text-lg font-semibold">{prompt("chooseLanguage")}</h2>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">{prompt("chooseLanguageDescription")}</p>
           </div>
         </div>
@@ -2446,10 +2514,9 @@ function LanguagePrompt({
           <span className="relative">
             <Languages className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
             <select
-              className="h-12 w-full appearance-none rounded-md border bg-background pl-10 pr-10 text-sm font-medium text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-ring/25"
+              className="h-12 w-full min-w-0 appearance-none rounded-md border bg-background pl-10 pr-10 text-sm font-medium text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-ring/25"
               value={selectedLanguage}
               disabled={busy}
-              autoFocus
               onChange={(event) => setSelectedLanguage(event.target.value as LanguageCode)}
             >
               {supportedLanguages.map((language) => (
@@ -2465,7 +2532,7 @@ function LanguagePrompt({
           <span className="relative">
             <CircleDollarSign className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
             <select
-              className="h-12 w-full appearance-none rounded-md border bg-background pl-10 pr-10 text-sm font-medium text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-ring/25"
+              className="h-12 w-full min-w-0 appearance-none rounded-md border bg-background pl-10 pr-10 text-sm font-medium text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-ring/25"
               value={selectedCurrency}
               disabled={busy}
               onChange={(event) => setSelectedCurrency(event.target.value as CurrencyCode)}

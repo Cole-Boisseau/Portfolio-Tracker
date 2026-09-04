@@ -184,6 +184,7 @@ const english = {
   unableLoadDetails: "Unable to load asset details.",
   unableUpdateSettings: "Unable to update settings.",
   unableSaveLanguage: "Unable to save your language. Please try again.",
+  preferencesSavedOnDevice: "Your choices were saved on this device. Server sync will retry automatically.",
   unableCheckSplits: "Unable to check split history.",
   backupRestore: "Backup & Restore",
   backupDescription: "Download your holdings, watchlist, favorites, and preferences, or restore them on this device.",

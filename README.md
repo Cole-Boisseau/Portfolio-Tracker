@@ -40,7 +40,15 @@ Create the codespace, wait for setup to finish, and run:
 pnpm dev
 ```
 
-Open the forwarded **Portfolio Tracker** port when Codespaces prompts you. Portfolio entries are stored in that codespace's local SQLite database, so use the app's Backup & Restore controls before deleting or rebuilding a codespace.
+The development command automatically generates Prisma and applies pending database migrations. Open the forwarded **Portfolio Tracker** port when Codespaces prompts you; it opens as a full browser page on desktop and mobile. Portfolio entries are stored in that codespace's local SQLite database, so use the app's Backup & Restore controls before deleting or rebuilding a codespace.
+
+If a dependency install was interrupted, repair it with:
+
+```bash
+rm -rf node_modules package-lock.json
+pnpm install --frozen-lockfile
+pnpm dev
+```
 
 ## Features
 
