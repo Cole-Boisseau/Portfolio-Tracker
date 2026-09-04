@@ -1,0 +1,36 @@
+{
+  "name": "Portfolio Tracker",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Portfolio Tracker",
+      "onAutoForward": "openPreview"
+    }
+  },
+  "containerEnv": {
+    "DATABASE_URL": "file:./dev.db",
+    "MARKET_PROVIDER": "polygon",
+    "MARKET_CACHE_SECONDS": "1800",
+    "MARKET_NEWS_CACHE_SECONDS": "21600",
+    "MARKET_SEARCH_CACHE_SECONDS": "86400",
+    "MARKET_SPLIT_CACHE_SECONDS": "86400",
+    "CRYPTO_CACHE_SECONDS": "1800",
+    "CRYPTO_CHART_CACHE_SECONDS": "21600",
+    "CRYPTO_SEARCH_CACHE_SECONDS": "86400",
+    "FX_CACHE_SECONDS": "43200"
+  },
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install --frozen-lockfile && pnpm prisma generate && pnpm prisma migrate deploy",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "bradlc.vscode-tailwindcss",
+        "Prisma.prisma"
+      ]
+    }
+  },
+  "remoteUser": "node"
+}

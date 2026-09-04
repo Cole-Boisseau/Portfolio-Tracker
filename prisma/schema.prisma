@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model PositionLot {
+  id            String   @id @default(cuid())
+  assetType     String   @default("stock")
+  assetId       String?
+  ticker        String
+  shares        Float
+  purchasePrice Float
+  purchaseDate  DateTime
+  notes         String?
+  splitFactor   Float    @default(1)
+  splitDetailsJson String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([ticker])
+  @@index([assetType, assetId])
+}
+
+model WatchlistItem {
+  id        String   @id @default(cuid())
+  assetType String   @default("stock")
+  assetId   String?
+  assetKey  String   @unique
+  ticker    String
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CryptoCache {
+  id              String   @id
+  ticker          String
+  companyName     String
+  imageUrl        String?
+  currentPrice    Float?
+  previousClose   Float?
+  dailyChange     Float?
+  dailyPercent    Float?
+  marketTime      DateTime?
+  profileJson     String?
+  chartJson       String?
+  quoteUpdatedAt  DateTime?
+  chartUpdatedAt  DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([ticker])
+}
+
+model StockCache {
+  ticker         String   @id
+  companyName    String?
+  currentPrice   Float?
+  previousClose  Float?
+  dailyChange    Float?
+  dailyPercent   Float?
+  marketTime     DateTime?
+  profileJson    String?
+  chartJson      String?
+  newsJson       String?
+  splitsJson     String?
+  quoteUpdatedAt DateTime?
+  newsUpdatedAt  DateTime?
+  splitsUpdatedAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
