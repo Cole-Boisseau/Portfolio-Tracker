@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { withUser } from "@/lib/api-auth";
 import { getStockSplits, marketErrorMessage, marketErrorStatus } from "@/lib/market/service";
 import { splitFactor } from "@/lib/splits";
 import { normalizeTicker } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request, context: { params: Promise<{ ticker: string }> }) {
+export const GET = withUser(async (request, context: { params: Promise<{ ticker: string }> }) => {
   const { ticker: tickerParam } = await context.params;
   const ticker = normalizeTicker(tickerParam);
   const purchaseDate = new URL(request.url).searchParams.get("from") ?? "";
@@ -29,4 +30,4 @@ export async function GET(request: Request, context: { params: Promise<{ ticker:
   } catch (error) {
     return NextResponse.json({ error: marketErrorMessage(error) }, { status: marketErrorStatus(error) });
   }
-}
+});

@@ -82,11 +82,11 @@ function normalizedFavorite(value: string) {
   return ticker ? `stock:${ticker}` : "";
 }
 
-export async function createPortfolioBackup(): Promise<PortfolioBackup> {
+export async function createPortfolioBackup(userId: string): Promise<PortfolioBackup> {
   const [lots, watchlist, savedSettings] = await Promise.all([
-    prisma.positionLot.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.watchlistItem.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.appSetting.findMany({ where: { key: { in: [...settingKeys] } } })
+    prisma.positionLot.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+    prisma.watchlistItem.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+    prisma.appSetting.findMany({ where: { userId, key: { in: [...settingKeys] } } })
   ]);
   const rawSettings = Object.fromEntries(savedSettings.map((setting) => [setting.key, setting.value]));
   const settings = backupSettingsSchema.safeParse(rawSettings);
@@ -119,7 +119,7 @@ export async function createPortfolioBackup(): Promise<PortfolioBackup> {
   };
 }
 
-export async function restorePortfolioBackup(backup: PortfolioBackup) {
+export async function restorePortfolioBackup(userId: string, backup: PortfolioBackup) {
   const lots = backup.lots.map((lot) => {
     const assetType = lot.assetType;
     const ticker = normalizeTicker(lot.ticker);
@@ -127,6 +127,7 @@ export async function restorePortfolioBackup(backup: PortfolioBackup) {
     if (!ticker || !assetId) throw new BackupValidationError("A portfolio entry is missing a valid asset symbol.");
 
     return {
+      userId,
       assetType,
       assetId,
       ticker,
@@ -147,6 +148,7 @@ export async function restorePortfolioBackup(backup: PortfolioBackup) {
     if (!ticker || !assetId) throw new BackupValidationError("A watchlist entry is missing a valid asset symbol.");
     const identity = { assetType, assetId, ticker };
     return {
+      userId,
       ...identity,
       assetKey: assetKey(identity),
       notes: item.notes?.trim() || null,
@@ -158,17 +160,17 @@ export async function restorePortfolioBackup(backup: PortfolioBackup) {
     throw new BackupValidationError("The backup contains duplicate watchlist assets.");
   }
 
-  const settings = Object.entries(backup.settings).map(([key, value]) => ({ key, value: String(value) }));
+  const settings = Object.entries(backup.settings).map(([key, value]) => ({ userId, key, value: String(value) }));
   const favorites = [...new Set(backup.favorites.map(normalizedFavorite).filter(Boolean))];
 
   await prisma.$transaction(async (transaction) => {
-    await transaction.positionLot.deleteMany();
-    await transaction.watchlistItem.deleteMany();
-    await transaction.appSetting.deleteMany({ where: { key: { in: [...settingKeys] } } });
+    await transaction.positionLot.deleteMany({ where: { userId } });
+    await transaction.watchlistItem.deleteMany({ where: { userId } });
+    await transaction.appSetting.deleteMany({ where: { userId, key: { in: [...settingKeys] } } });
     if (lots.length) await transaction.positionLot.createMany({ data: lots });
     if (watchlist.length) await transaction.watchlistItem.createMany({ data: watchlist });
     if (settings.length) await transaction.appSetting.createMany({ data: settings });
-  });
+  }, { timeout: 30_000 });
 
   return {
     lots: lots.length,

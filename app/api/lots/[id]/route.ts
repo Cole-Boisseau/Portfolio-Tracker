@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withUser } from "@/lib/api-auth";
 import { z } from "zod";
 import { normalizeAssetType } from "@/lib/assets";
 import { getStockSplits, marketErrorMessage, marketErrorStatus } from "@/lib/market/service";
@@ -17,14 +18,14 @@ const updateLotSchema = z.object({
   adjustForSplits: z.boolean().optional()
 });
 
-export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+export const PATCH = withUser(async (request, context: { params: Promise<{ id: string }> }, userId) => {
   const { id } = await context.params;
   const parsed = updateLotSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const existing = await prisma.positionLot.findUnique({ where: { id } });
+  const existing = await prisma.positionLot.findUnique({ where: { id, userId } });
   if (!existing) return NextResponse.json({ error: "Purchase lot not found." }, { status: 404 });
 
   const assetType = normalizeAssetType(existing.assetType);
@@ -54,7 +55,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     ? parsed.data.totalInvested / nextShares
     : parsed.data.purchasePrice;
   const lot = await prisma.positionLot.update({
-    where: { id },
+    where: { id, userId },
     data: {
       ticker,
       shares: parsed.data.shares,
@@ -66,10 +67,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   });
 
   return NextResponse.json(lot);
-}
+});
 
-export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+export const DELETE = withUser(async (_request, context: { params: Promise<{ id: string }> }, userId) => {
   const { id } = await context.params;
-  await prisma.positionLot.deleteMany({ where: { id } });
+  await prisma.positionLot.deleteMany({ where: { id, userId } });
   return NextResponse.json({ ok: true });
-}
+});

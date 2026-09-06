@@ -1,4 +1,5 @@
 -- Add first-class asset identity to portfolio lots.
+-- Archived SQLite migration.
 ALTER TABLE "PositionLot" ADD COLUMN "assetType" TEXT NOT NULL DEFAULT 'stock';
 ALTER TABLE "PositionLot" ADD COLUMN "assetId" TEXT;
 UPDATE "PositionLot" SET "assetId" = "ticker" WHERE "assetId" IS NULL;

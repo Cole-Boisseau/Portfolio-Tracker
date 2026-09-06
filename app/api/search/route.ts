@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { withUser } from "@/lib/api-auth";
 import { marketErrorMessage, searchTickers } from "@/lib/market/service";
 import { MarketDataError } from "@/lib/market/types";
 import { searchCryptoAssets } from "@/lib/crypto/service";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export const GET = withUser(async (request) => {
   const url = new URL(request.url);
   const query = url.searchParams.get("query")?.trim() ?? "";
   const assetType = url.searchParams.get("type") === "crypto" ? "crypto" : "stock";
@@ -32,4 +33,4 @@ export async function GET(request: Request) {
     }
     return NextResponse.json({ error: marketErrorMessage(error) }, { status: 503 });
   }
-}
+});

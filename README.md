@@ -1,67 +1,56 @@
-# Portfolio Tracker
+# My Portfolio
 
-A local-first stock, ETF, and cryptocurrency portfolio tracker built with Next.js, TypeScript, Tailwind CSS, Prisma, SQLite, and Recharts.
+A stock, ETF, and cryptocurrency portfolio tracker built with Next.js, TypeScript, Tailwind CSS, Prisma, and PostgreSQL.
 
-## Market Data
+## Publish the website
 
-- Polygon supplies stock and ETF prices, company details, historical prices, splits, charts, and news.
-- CoinGecko supplies crypto search, batched USD prices, 24-hour changes, one-year charts, and historical purchase prices.
-- Frankfurter supplies keyless daily exchange rates for the display currency setting.
-- Both providers are isolated behind server-side services and locally cached. The browser never receives either API key.
+Follow [DEPLOYMENT.md](DEPLOYMENT.md) to connect **GitHub + Vercel + Neon + GitHub sign-in**. Vercel runs the website and Neon stores the data. GitHub Pages is not compatible with this app's server routes.
 
-## Setup
+Each signed-in account owns its holdings, watchlist, settings, and backups. All data and market API routes require authentication. Market prices are shared cached public data; personal records are never shared.
 
-1. Create `.env` from `.env.example`.
-2. Add `POLYGON_API_KEY` for stocks and a free CoinGecko Demo key as `COINGECKO_API_KEY` for crypto.
-3. Install dependencies and prepare the database.
+## Existing SQLite portfolios
+
+Keep your old database. Export it before switching:
+
+```bash
+npm run db:export-sqlite
+```
+
+The JSON backup is written to the ignored `backups/` folder. Restore it from Settings after signing in to the new website. This preserves purchase dates, original investment, and split adjustments.
+
+## Development
+
+Use Node.js 22.13 or later. Copy `.env.example` to `.env.local` and configure PostgreSQL, GitHub OAuth, and your market keys as described in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ```bash
 corepack enable
-pnpm install
-pnpm prisma generate
-pnpm prisma migrate deploy
-pnpm dev
-```
-
-Open [http://localhost:3000](http://localhost:3000).
-
-## GitHub Codespaces
-
-The repository includes a dev-container that installs dependencies, generates the Prisma client, prepares SQLite, and forwards port `3000` automatically.
-
-Before creating a codespace, add these repository secrets under **Settings > Secrets and variables > Codespaces**:
-
-- `POLYGON_API_KEY`
-- `COINGECKO_API_KEY`
-
-Create the codespace, wait for setup to finish, and run:
-
-```bash
-pnpm dev
-```
-
-The development command automatically generates Prisma and applies pending database migrations. Open the forwarded **Portfolio Tracker** port when Codespaces prompts you; it opens as a full browser page on desktop and mobile. Portfolio entries are stored in that codespace's local SQLite database, so use the app's Backup & Restore controls before deleting or rebuilding a codespace.
-
-If a dependency install was interrupted, repair it with:
-
-```bash
-rm -rf node_modules package-lock.json
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
+Open [localhost:3000](http://localhost:3000). Codespaces includes a separate PostgreSQL service and forwards port 3000. Existing Codespaces need a container rebuild after this upgrade and development OAuth credentials.
+
 ## Features
 
+- GitHub sign-in and private portfolios for each account
 - Stocks, ETFs, and crypto in one portfolio and watchlist
-- Company or coin-name search, without requiring a ticker
-- Current price, daily dollar change, daily percentage change, charts, and last-updated time
-- Purchase lots with total invested, purchase date, notes, and automatic historical price lookup
-- Stock split adjustments that preserve the original amount invested
-- Portfolio value, cost basis, gain/loss, allocation, and performance views
-- A USD-default display currency setting with ten widely traded currency choices; saved portfolio amounts remain in USD
-- A first-launch language chooser with English, Spanish, French, Portuguese, Simplified Chinese, German, and Japanese; language can be changed later in Settings
-- Batched crypto refreshes and 30-minute local quote caching to protect free API allowances
-- Manual refresh plus automatic refresh every 30 minutes
-- Versioned JSON backup and restore for holdings, watchlist, favorites, and preferences
-- Visible fresh, cached, and stale price-status indicators
-- Local SQLite storage and server-only API credentials
+- Company or coin-name search
+- Current value, cost basis, gain/loss, allocation, charts, and news
+- Original purchase entry and stock split adjustments
+- Manual refresh and cached 30-minute price refreshes
+- Desktop and mobile layouts, light/dark mode, seven languages, and ten currencies
+- Account-scoped backup and restore
+
+Polygon supplies stocks and ETFs, CoinGecko supplies cryptocurrencies, and Frankfurter supplies exchange rates. Keys remain on the server and are never included in backups or committed to GitHub. Codespaces secrets must be configured separately in Vercel.
+
+## Checks
+
+```bash
+pnpm lint
+pnpm exec tsc --noEmit
+pnpm exec playwright install chromium
+pnpm test
+pnpm build
+```
+
+Tests use an isolated PostgreSQL instance and local test sessions. Live GitHub OAuth is verified after deployment configuration.

@@ -1,0 +1,29 @@
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm
+    command: sleep infinity
+    volumes:
+      - ..:/workspaces/Portfolio-Tracker:cached
+    environment:
+      DATABASE_URL: postgresql://portfolio:portfolio@db:5432/portfolio?schema=public
+      DIRECT_URL: postgresql://portfolio:portfolio@db:5432/portfolio?schema=public
+      AUTH_TRUST_HOST: "true"
+      MARKET_PROVIDER: polygon
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: portfolio
+      POSTGRES_PASSWORD: portfolio
+      POSTGRES_DB: portfolio
+    volumes:
+      - portfolio-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portfolio -d portfolio"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+volumes:
+  portfolio-data:

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withUser } from "@/lib/api-auth";
 import { assetKey, normalizeCryptoId } from "@/lib/assets";
 import { getCryptoSnapshot } from "@/lib/crypto/service";
 import { marketErrorMessage, marketErrorStatus } from "@/lib/market/service";
@@ -7,7 +8,7 @@ import { adjustPositionLot } from "@/lib/splits";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
+export const GET = withUser(async (request, context: { params: Promise<{ id: string }> }, userId) => {
   const { id: idParam } = await context.params;
   const id = normalizeCryptoId(decodeURIComponent(idParam));
   const url = new URL(request.url);
@@ -20,10 +21,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const [snapshot, lots, watchlistItem] = await Promise.all([
       getCryptoSnapshot(id, { includeChart: true, force }),
       prisma.positionLot.findMany({
-        where: { assetType: "crypto", assetId: id },
+        where: { userId, assetType: "crypto", assetId: id },
         orderBy: { purchaseDate: "desc" }
       }),
-      prisma.watchlistItem.findUnique({ where: { assetKey: key } })
+      prisma.watchlistItem.findUnique({ where: { userId_assetKey: { userId, assetKey: key } } })
     ]);
 
     return NextResponse.json({
@@ -37,4 +38,4 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   } catch (error) {
     return NextResponse.json({ error: marketErrorMessage(error) }, { status: marketErrorStatus(error) });
   }
-}
+});

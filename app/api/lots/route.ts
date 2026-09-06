@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withUser } from "@/lib/api-auth";
 import { z } from "zod";
 import { normalizeCryptoId } from "@/lib/assets";
 import { getCryptoHistoricalPrice, getCryptoSnapshot } from "@/lib/crypto/service";
@@ -28,14 +29,15 @@ const lotSchema = z.object({
   adjustForSplits: z.boolean().optional().default(false)
 });
 
-export async function GET() {
+export const GET = withUser(async (_request, _context, userId) => {
   const lots = await prisma.positionLot.findMany({
+    where: { userId },
     orderBy: [{ assetType: "asc" }, { ticker: "asc" }, { purchaseDate: "desc" }]
   });
   return NextResponse.json(lots);
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withUser(async (request, _context, userId) => {
   const parsed = lotSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -79,6 +81,7 @@ export async function POST(request: Request) {
   const factor = assetType === "stock" ? splitFactor(splits) : 1;
   const lot = await prisma.positionLot.create({
     data: {
+      userId,
       assetType,
       assetId: requestedAssetId,
       ticker,
@@ -106,4 +109,4 @@ export async function POST(request: Request) {
     },
     { status: 201 }
   );
-}
+});

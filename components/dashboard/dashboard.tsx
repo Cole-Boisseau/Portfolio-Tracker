@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, FormEvent, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { signOut } from "next-auth/react";
 import {
   Area,
   AreaChart,
@@ -42,6 +43,7 @@ import {
   Languages,
   LineChart,
   LockKeyhole,
+  LogOut,
   Moon,
   Newspaper,
   Pencil,
@@ -257,11 +259,11 @@ const defaultSettings: Settings = {
   language: "en"
 };
 
-const devicePreferencesKey = "portfolio-device-preferences";
+const AccountContext = createContext("");
 
-function readDevicePreferences(): Partial<Pick<Settings, "language" | "currency">> {
+function readDevicePreferences(userId: string): Partial<Pick<Settings, "language" | "currency">> {
   try {
-    const stored = window.localStorage.getItem(devicePreferencesKey);
+    const stored = window.localStorage.getItem(`portfolio-device-preferences:${userId}`);
     if (!stored) return {};
     const parsed = JSON.parse(stored) as { language?: unknown; currency?: unknown };
     return {
@@ -273,9 +275,9 @@ function readDevicePreferences(): Partial<Pick<Settings, "language" | "currency"
   }
 }
 
-function saveDevicePreferences(language: LanguageCode, currency: CurrencyCode) {
+function saveDevicePreferences(userId: string, language: LanguageCode, currency: CurrencyCode) {
   try {
-    window.localStorage.setItem(devicePreferencesKey, JSON.stringify({ language, currency }));
+    window.localStorage.setItem(`portfolio-device-preferences:${userId}`, JSON.stringify({ language, currency }));
   } catch {
     // Private browsing or restricted storage should not block onboarding.
   }
@@ -324,6 +326,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
     }
   });
   if (!response.ok) {
+    if (response.status === 401) window.location.assign("/login");
     const body = await response.json().catch(() => null);
     const responseError = body?.error;
     const fieldMessage = responseError && typeof responseError === "object"
@@ -465,7 +468,7 @@ function lastPriceOnOrBefore(chart: ChartPoint[] | undefined, date: string) {
   return latest;
 }
 
-export function Dashboard() {
+export function Dashboard({ userId }: { userId: string }) {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
   const [detail, setDetail] = useState<AssetDetail | null>(null);
   const [detailTab, setDetailTab] = useState<"overview" | "news">("overview");
@@ -595,7 +598,7 @@ export function Dashboard() {
     let effectiveCurrency = currency;
     setLanguageSaving(true);
     setSettings((current) => ({ ...current, language, currency }));
-    saveDevicePreferences(language, currency);
+    saveDevicePreferences(userId, language, currency);
     setShowLanguagePrompt(false);
 
     let syncFailed = false;
@@ -607,7 +610,7 @@ export function Dashboard() {
       syncFailed = true;
       setSettings((current) => ({ ...current, currency: "USD" }));
       setExchangeRate({ currency: "USD", rate: 1 });
-      saveDevicePreferences(language, "USD");
+      saveDevicePreferences(userId, language, "USD");
       effectiveCurrency = "USD";
     }
 
@@ -820,7 +823,7 @@ export function Dashboard() {
 
   useEffect(() => {
     async function loadInitialSettings() {
-      const device = readDevicePreferences();
+      const device = readDevicePreferences(userId);
       let stored: Partial<Settings> = {};
       let serverAvailable = true;
 
@@ -845,7 +848,7 @@ export function Dashboard() {
       let effectiveCurrency = currency;
 
       setShowLanguagePrompt(!hasSavedLanguage);
-      if (hasSavedLanguage) saveDevicePreferences(language, currency);
+      if (hasSavedLanguage) saveDevicePreferences(userId, language, currency);
 
       try {
         await loadExchangeRate(currency);
@@ -853,7 +856,7 @@ export function Dashboard() {
       } catch {
         setSettings({ ...nextSettings, currency: "USD" });
         setExchangeRate({ currency: "USD", rate: 1 });
-        if (hasSavedLanguage) saveDevicePreferences(language, "USD");
+        if (hasSavedLanguage) saveDevicePreferences(userId, language, "USD");
         effectiveCurrency = "USD";
       }
 
@@ -864,8 +867,8 @@ export function Dashboard() {
         }).catch(() => undefined);
       }
 
-      if (window.sessionStorage.getItem("portfolio-backup-restored") === "true") {
-        window.sessionStorage.removeItem("portfolio-backup-restored");
+      if (window.sessionStorage.getItem(`portfolio-backup-restored:${userId}`) === "true") {
+        window.sessionStorage.removeItem(`portfolio-backup-restored:${userId}`);
         setNotice({ tone: "success", message: translate(language, "backupRestored") });
       }
     }
@@ -874,11 +877,11 @@ export function Dashboard() {
     loadSummary();
     const id = window.setInterval(() => loadSummary(true), 30 * 60 * 1000);
     return () => window.clearInterval(id);
-  }, [loadExchangeRate, loadSummary, t]);
+  }, [loadExchangeRate, loadSummary, t, userId]);
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem("portfolio-favorites");
+      const stored = window.localStorage.getItem(`portfolio-favorites:${userId}`);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
@@ -899,12 +902,16 @@ export function Dashboard() {
     } finally {
       favoritesLoaded.current = true;
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     if (!favoritesLoaded.current) return;
-    window.localStorage.setItem("portfolio-favorites", JSON.stringify(favoriteTickers));
-  }, [favoriteTickers]);
+    try {
+      window.localStorage.setItem(`portfolio-favorites:${userId}`, JSON.stringify(favoriteTickers));
+    } catch {
+      // Restricted browser storage does not affect server-owned portfolio records.
+    }
+  }, [favoriteTickers, userId]);
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(Date.now()), 60 * 1000);
@@ -1053,6 +1060,7 @@ export function Dashboard() {
   ];
 
   return (
+    <AccountContext.Provider value={userId}>
     <LanguageContext.Provider value={{ language: settings.language, locale, t }}>
       <CurrencyContext.Provider value={exchangeRate}>
         <main className={cn("min-h-screen overflow-x-clip bg-background", densityClass)}>
@@ -1406,6 +1414,7 @@ export function Dashboard() {
         </main>
       </CurrencyContext.Provider>
     </LanguageContext.Provider>
+    </AccountContext.Provider>
   );
 }
 
@@ -3436,6 +3445,7 @@ function SettingsPanel({
   currencyLoading: boolean;
   saveSettings: (next: Partial<Settings>) => Promise<void>;
 }) {
+  const userId = useContext(AccountContext);
   const { locale, t } = useLanguage();
   const currencyNames = new Intl.DisplayNames([locale], { type: "currency" });
   const restoreInputRef = useRef<HTMLInputElement | null>(null);
@@ -3449,7 +3459,7 @@ function SettingsPanel({
       const backup = await api<PortfolioBackupFile>("/api/backup");
       let favorites: string[] = [];
       try {
-        const stored = JSON.parse(window.localStorage.getItem("portfolio-favorites") ?? "[]");
+        const stored = JSON.parse(window.localStorage.getItem(`portfolio-favorites:${userId}`) ?? "[]");
         if (Array.isArray(stored)) favorites = stored.map(String);
       } catch {
         favorites = [];
@@ -3497,8 +3507,8 @@ function SettingsPanel({
         method: "POST",
         body: JSON.stringify(backup)
       });
-      window.localStorage.setItem("portfolio-favorites", JSON.stringify(response.restored.favorites));
-      window.sessionStorage.setItem("portfolio-backup-restored", "true");
+      window.localStorage.setItem(`portfolio-favorites:${userId}`, JSON.stringify(response.restored.favorites));
+      window.sessionStorage.setItem(`portfolio-backup-restored:${userId}`, "true");
       window.location.reload();
     } catch (backupError) {
       const fallback = backupError instanceof SyntaxError ? t("invalidBackupFile") : t("backupRestoreFailed");
@@ -3511,7 +3521,10 @@ function SettingsPanel({
     <Panel>
       <PanelHeader className="flex items-center justify-between">
         <h2 className="font-semibold">{t("settings")}</h2>
-        <Settings2 className="h-4 w-4 text-primary" />
+        <Button variant="ghost" onClick={() => void signOut({ redirectTo: "/login" })}>
+          <LogOut className="h-4 w-4" />
+          {t("signOut")}
+        </Button>
       </PanelHeader>
       <PanelBody className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <ControlGroup title={t("theme")}>

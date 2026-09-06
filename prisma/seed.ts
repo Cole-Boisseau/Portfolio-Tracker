@@ -3,6 +3,10 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
+  const userId = process.argv[2];
+  if (!userId || !(await prisma.user.findUnique({ where: { id: userId } }))) {
+    throw new Error("Sign in first, then pass that user's ID to db:seed. No shared portfolio is seeded.");
+  }
   const lots = [
     {
       id: "seed-aapl-1",
@@ -40,9 +44,9 @@ async function main() {
 
   for (const lot of lots) {
     await prisma.positionLot.upsert({
-      where: { id: lot.id },
-      create: lot,
-      update: lot
+      where: { id: `${userId}-${lot.id}`, userId },
+      create: { ...lot, id: `${userId}-${lot.id}`, userId },
+      update: { ...lot, id: `${userId}-${lot.id}` }
     });
   }
 
@@ -55,15 +59,15 @@ async function main() {
   for (const item of watchlist) {
     const assetKey = `stock:${item.ticker}`;
     await prisma.watchlistItem.upsert({
-      where: { assetKey },
-      create: { ...item, assetType: "stock", assetId: item.ticker, assetKey },
+      where: { userId_assetKey: { userId, assetKey } },
+      create: { ...item, userId, assetType: "stock", assetId: item.ticker, assetKey },
       update: item
     });
   }
 
   await prisma.appSetting.upsert({
-    where: { key: "theme" },
-    create: { key: "theme", value: "system" },
+    where: { userId_key: { userId, key: "theme" } },
+    create: { userId, key: "theme", value: "system" },
     update: {}
   });
 }

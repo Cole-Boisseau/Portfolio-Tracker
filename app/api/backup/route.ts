@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withUser } from "@/lib/api-auth";
 import {
   BackupValidationError,
   createPortfolioBackup,
@@ -10,13 +11,13 @@ export const dynamic = "force-dynamic";
 
 const MAX_BACKUP_BYTES = 2 * 1024 * 1024;
 
-export async function GET() {
-  return NextResponse.json(await createPortfolioBackup(), {
+export const GET = withUser(async (_request, _context, userId) => {
+  return NextResponse.json(await createPortfolioBackup(userId), {
     headers: { "Cache-Control": "no-store" }
   });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withUser(async (request, _context, userId) => {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > MAX_BACKUP_BYTES) {
     return NextResponse.json({ error: "That backup file is too large." }, { status: 413 });
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    return NextResponse.json({ ok: true, restored: await restorePortfolioBackup(parsed.data) });
+    return NextResponse.json({ ok: true, restored: await restorePortfolioBackup(userId, parsed.data) });
   } catch (error) {
     const validationError = error instanceof BackupValidationError;
     return NextResponse.json(
@@ -39,4 +40,4 @@ export async function POST(request: Request) {
       { status: validationError ? 400 : 500 }
     );
   }
-}
+});

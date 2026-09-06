@@ -1,4 +1,5 @@
 -- AlterTable
+-- Archived SQLite migration.
 ALTER TABLE "PositionLot" ADD COLUMN "splitFactor" REAL NOT NULL DEFAULT 1;
 ALTER TABLE "PositionLot" ADD COLUMN "splitDetailsJson" TEXT;
 

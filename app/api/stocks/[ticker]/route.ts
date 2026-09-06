@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withUser } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
 import { getMarketSnapshot, marketErrorMessage, marketErrorStatus } from "@/lib/market/service";
 import { normalizeTicker } from "@/lib/utils";
@@ -7,7 +8,7 @@ import { assetKey } from "@/lib/assets";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request, context: { params: Promise<{ ticker: string }> }) {
+export const GET = withUser(async (request, context: { params: Promise<{ ticker: string }> }, userId) => {
   const { ticker: tickerParam } = await context.params;
   const ticker = normalizeTicker(tickerParam);
   const url = new URL(request.url);
@@ -19,11 +20,11 @@ export async function GET(request: Request, context: { params: Promise<{ ticker:
     const [snapshot, lots, watchlistItem] = await Promise.all([
       getMarketSnapshot(ticker, { includeChart: true, includeNews: true, force }),
       prisma.positionLot.findMany({
-        where: { assetType: "stock", ticker },
+        where: { userId, assetType: "stock", ticker },
         orderBy: { purchaseDate: "desc" }
       }),
       prisma.watchlistItem.findUnique({
-        where: { assetKey: assetKey({ assetType: "stock", assetId: ticker, ticker }) }
+        where: { userId_assetKey: { userId, assetKey: assetKey({ assetType: "stock", assetId: ticker, ticker }) } }
       })
     ]);
 
@@ -38,4 +39,4 @@ export async function GET(request: Request, context: { params: Promise<{ ticker:
   } catch (error) {
     return NextResponse.json({ error: marketErrorMessage(error) }, { status: marketErrorStatus(error) });
   }
-}
+});

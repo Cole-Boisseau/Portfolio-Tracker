@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withUser } from "@/lib/api-auth";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 
@@ -17,28 +18,28 @@ type SettingRow = {
   value: string;
 };
 
-export async function GET() {
-  const settings = (await prisma.appSetting.findMany()) as SettingRow[];
+export const GET = withUser(async (_request, _context, userId) => {
+  const settings = (await prisma.appSetting.findMany({ where: { userId } })) as SettingRow[];
   return NextResponse.json(
     Object.fromEntries(settings.map((setting) => [setting.key, setting.value]))
   );
-}
+});
 
-export async function PUT(request: Request) {
+export const PUT = withUser(async (request, _context, userId) => {
   const parsed = settingsSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  await Promise.all(
+  await prisma.$transaction(
     Object.entries(parsed.data).map(([key, value]) =>
       prisma.appSetting.upsert({
-        where: { key },
-        create: { key, value: String(value) },
+        where: { userId_key: { userId, key } },
+        create: { userId, key, value: String(value) },
         update: { value: String(value) }
       })
     )
   );
 
   return NextResponse.json({ ok: true });
-}
+});

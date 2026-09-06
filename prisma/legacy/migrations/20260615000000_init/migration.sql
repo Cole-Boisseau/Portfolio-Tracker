@@ -1,4 +1,5 @@
 -- CreateTable
+-- Archived SQLite migration. PostgreSQL uses the new migration history.
 CREATE TABLE "PositionLot" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "ticker" TEXT NOT NULL,

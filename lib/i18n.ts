@@ -13,6 +13,7 @@ const english = {
   watchlist: "Watchlist",
   analytics: "Analytics",
   settings: "Settings",
+  signOut: "Sign out",
   more: "More",
   welcomeBack: "Welcome back",
   portfolioToday: "Here's what's happening with your portfolio today.",

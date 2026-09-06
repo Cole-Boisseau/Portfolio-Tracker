@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withUser } from "@/lib/api-auth";
 import { z } from "zod";
 import { assetKey, normalizeCryptoId } from "@/lib/assets";
 import { getCryptoSnapshot } from "@/lib/crypto/service";
@@ -15,12 +16,12 @@ const watchlistSchema = z.object({
   notes: z.string().optional().nullable()
 });
 
-export async function GET() {
-  const items = await prisma.watchlistItem.findMany({ orderBy: { createdAt: "desc" } });
+export const GET = withUser(async (_request, _context, userId) => {
+  const items = await prisma.watchlistItem.findMany({ where: { userId }, orderBy: { createdAt: "desc" } });
   return NextResponse.json(items);
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withUser(async (request, _context, userId) => {
   const parsed = watchlistSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -50,8 +51,9 @@ export async function POST(request: Request) {
 
   const key = assetKey({ assetType, assetId: id, ticker });
   const item = await prisma.watchlistItem.upsert({
-    where: { assetKey: key },
+    where: { userId_assetKey: { userId, assetKey: key } },
     create: {
+      userId,
       assetType,
       assetId: id,
       assetKey: key,
@@ -65,4 +67,4 @@ export async function POST(request: Request) {
   });
 
   return NextResponse.json(item, { status: 201 });
-}
+});

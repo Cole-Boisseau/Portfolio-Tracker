@@ -92,10 +92,10 @@ function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-export async function getPortfolioSummary(): Promise<PortfolioSummary> {
+export async function getPortfolioSummary(userId: string): Promise<PortfolioSummary> {
   const [lots, watchlist] = (await Promise.all([
-    prisma.positionLot.findMany({ orderBy: [{ assetType: "asc" }, { ticker: "asc" }, { purchaseDate: "asc" }] }),
-    prisma.watchlistItem.findMany({ orderBy: { createdAt: "desc" } })
+    prisma.positionLot.findMany({ where: { userId }, orderBy: [{ assetType: "asc" }, { ticker: "asc" }, { purchaseDate: "asc" }] }),
+    prisma.watchlistItem.findMany({ where: { userId }, orderBy: { createdAt: "desc" } })
   ])) as [PositionLotRow[], WatchlistItemRow[]];
 
   const activeIdentities = [...lots.map(identity), ...watchlist.map(identity)];
