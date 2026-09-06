@@ -133,3 +133,92 @@ test("cross-site mutations and expired sessions are rejected", async ({ context 
   await prisma.session.update({ where: { sessionToken: "session-test-alice" }, data: { expires: new Date(0) } });
   expect((await context.request.get("/api/lots")).status()).toBe(401);
 });
+
+test("Continue works when browser storage is blocked and saving fails", async ({ page, context }) => {
+  await login(context);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    for (const name of ["localStorage", "sessionStorage"]) {
+      Object.defineProperty(window, name, { get() { throw new DOMException("Storage blocked", "SecurityError"); } });
+    }
+  });
+  await page.route("**/api/settings", (route) => route.request().method() === "PUT"
+    ? route.fulfill({ status: 503, json: { error: "Temporary test failure" } })
+    : route.continue());
+  await page.goto("/");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("combobox").nth(0).selectOption("es");
+  await dialog.getByRole("button", { name: "Continuar", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator("html")).toHaveAttribute("lang", "es");
+  await expect(page.getByText(/choices.*session|choices.*device/i)).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("a late startup exchange rate cannot undo completed onboarding", async ({ page, context }) => {
+  await login(context);
+  await prisma.appSetting.create({ data: { userId: "test-alice", key: "currency", value: "EUR" } });
+  let releaseRate!: () => void;
+  const rateGate = new Promise<void>((resolve) => { releaseRate = resolve; });
+  let rateRequested = false;
+  await page.route("**/api/exchange-rate?currency=EUR", async (route) => {
+    rateRequested = true;
+    await rateGate;
+    await route.fulfill({ json: { currency: "EUR", rate: 0.9 } });
+  });
+  await page.goto("/");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => rateRequested).toBe(true);
+  await dialog.getByRole("combobox").nth(0).selectOption("es");
+  await dialog.getByRole("combobox").nth(1).selectOption("USD");
+  const saved = page.waitForResponse((response) => response.url().endsWith("/api/settings") && response.request().method() === "PUT");
+  await dialog.getByRole("button", { name: "Continuar", exact: true }).click();
+  await saved;
+  await expect(dialog).toHaveCount(0);
+  const rateReturned = page.waitForResponse("**/api/exchange-rate?currency=EUR");
+  releaseRate();
+  await rateReturned;
+  // Let the stale response finish before checking the selected language.
+  await page.waitForLoadState("networkidle");
+  await expect(page.locator("html")).toHaveAttribute("lang", "es");
+  await expect(dialog).toHaveCount(0);
+});
+
+test("stalled preference requests time out without trapping the user", async ({ page, context }) => {
+  await login(context);
+  // Leave both the startup read and save pending to simulate a stalled proxy.
+  await page.route("**/api/settings", () => undefined);
+  await page.goto("/");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible({ timeout: 12_000 });
+  await dialog.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(dialog).toHaveCount(0, { timeout: 1000 });
+  await expect(page.getByText("Your choices are saved on this device.", { exact: false })).toBeVisible({ timeout: 12_000 });
+  await expect(dialog).toHaveCount(0);
+});
+
+test("a failed currency lookup uses USD and still saves the selected language", async ({ page, context }, testInfo) => {
+  await login(context);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/api/exchange-rate?currency=EUR", (route) => route.fulfill({ status: 503, json: { error: "Rate service unavailable" } }));
+  await page.goto("/");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("combobox").nth(0).selectOption("fr");
+  await dialog.getByRole("combobox").nth(1).selectOption("EUR");
+  const saved = page.waitForResponse((response) => response.url().endsWith("/api/settings") && response.request().method() === "PUT");
+  await dialog.getByRole("button", { name: "Continuer", exact: true }).click();
+  expect((await saved).ok()).toBe(true);
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator("html")).toHaveAttribute("lang", "fr");
+  expect(await (await context.request.get("/api/settings")).json()).toMatchObject({ language: "fr", currency: "USD" });
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("lang", "fr");
+  await expect(dialog).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("after-continue.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});

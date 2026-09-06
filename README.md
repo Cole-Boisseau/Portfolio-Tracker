@@ -48,7 +48,7 @@ Polygon supplies stocks and ETFs, CoinGecko supplies cryptocurrencies, and Frank
 ```bash
 pnpm lint
 pnpm exec tsc --noEmit
-pnpm exec playwright install chromium
+pnpm exec playwright install chromium webkit
 pnpm test
 pnpm build
 ```

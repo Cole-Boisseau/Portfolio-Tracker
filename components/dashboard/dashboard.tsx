@@ -278,8 +278,10 @@ function readDevicePreferences(userId: string): Partial<Pick<Settings, "language
 function saveDevicePreferences(userId: string, language: LanguageCode, currency: CurrencyCode) {
   try {
     window.localStorage.setItem(`portfolio-device-preferences:${userId}`, JSON.stringify({ language, currency }));
+    return true;
   } catch {
     // Private browsing or restricted storage should not block onboarding.
+    return false;
   }
 }
 
@@ -341,6 +343,22 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
     );
   }
   return response.json() as Promise<T>;
+}
+
+async function preferencesApi<T>(url: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    return await api<T>(url, { ...init, cache: "no-store", signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function fetchExchangeRate(currency: CurrencyCode): Promise<ExchangeRateState> {
+  return currency === "USD"
+    ? { currency, rate: 1, asOf: new Date().toISOString().slice(0, 10) }
+    : preferencesApi<ExchangeRateState>(`/api/exchange-rate?currency=${currency}`);
 }
 
 function useTheme(settings: Settings) {
@@ -495,6 +513,7 @@ export function Dashboard({ userId }: { userId: string }) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const mobileSearchInputRef = useRef<HTMLInputElement | null>(null);
   const favoritesLoaded = useRef(false);
+  const settingsRevision = useRef(0);
   const languageRef = useRef<LanguageCode>(settings.language);
   languageRef.current = settings.language;
 
@@ -567,9 +586,7 @@ export function Dashboard({ userId }: { userId: string }) {
   const loadExchangeRate = useCallback(async (currency: CurrencyCode) => {
     setCurrencyLoading(true);
     try {
-      const rate = currency === "USD"
-        ? { currency: "USD" as const, rate: 1, asOf: new Date().toISOString().slice(0, 10) }
-        : await api<ExchangeRateState>(`/api/exchange-rate?currency=${currency}`);
+      const rate = await fetchExchangeRate(currency);
       setExchangeRate(rate);
       return rate;
     } finally {
@@ -578,6 +595,8 @@ export function Dashboard({ userId }: { userId: string }) {
   }, []);
 
   async function saveSettings(next: Partial<Settings>) {
+    settingsRevision.current += 1;
+    setCurrencyLoading(false);
     const previousSettings = settings;
     const previousRate = exchangeRate;
     const merged = { ...settings, ...next };
@@ -586,7 +605,7 @@ export function Dashboard({ userId }: { userId: string }) {
       if (next.currency && next.currency !== exchangeRate.currency) {
         await loadExchangeRate(next.currency);
       }
-      await api("/api/settings", { method: "PUT", body: JSON.stringify(next) });
+      await preferencesApi("/api/settings", { method: "PUT", body: JSON.stringify(next) });
     } catch (settingsError) {
       setSettings(previousSettings);
       setExchangeRate(previousRate);
@@ -595,10 +614,13 @@ export function Dashboard({ userId }: { userId: string }) {
   }
 
   async function completeLanguageSelection(language: LanguageCode, currency: CurrencyCode) {
+    // A startup response must never reopen onboarding or replace a submitted choice.
+    settingsRevision.current += 1;
     let effectiveCurrency = currency;
     setLanguageSaving(true);
+    setCurrencyLoading(false);
     setSettings((current) => ({ ...current, language, currency }));
-    saveDevicePreferences(userId, language, currency);
+    let savedOnDevice = saveDevicePreferences(userId, language, currency);
     setShowLanguagePrompt(false);
 
     let syncFailed = false;
@@ -610,12 +632,12 @@ export function Dashboard({ userId }: { userId: string }) {
       syncFailed = true;
       setSettings((current) => ({ ...current, currency: "USD" }));
       setExchangeRate({ currency: "USD", rate: 1 });
-      saveDevicePreferences(userId, language, "USD");
+      savedOnDevice = saveDevicePreferences(userId, language, "USD");
       effectiveCurrency = "USD";
     }
 
     try {
-      await api("/api/settings", { method: "PUT", body: JSON.stringify({ language, currency: effectiveCurrency }) });
+      await preferencesApi("/api/settings", { method: "PUT", body: JSON.stringify({ language, currency: effectiveCurrency }) });
     } catch {
       syncFailed = true;
     } finally {
@@ -623,7 +645,7 @@ export function Dashboard({ userId }: { userId: string }) {
     }
 
     if (syncFailed) {
-      setNotice({ tone: "info", message: translate(language, "preferencesSavedOnDevice") });
+      setNotice({ tone: "info", message: translate(language, savedOnDevice ? "preferencesSavedOnDevice" : "preferencesSavedForSession") });
     }
   }
 
@@ -822,16 +844,26 @@ export function Dashboard({ userId }: { userId: string }) {
   }
 
   useEffect(() => {
+    let cancelled = false;
+    const revision = settingsRevision.current;
+    const isCurrent = () => !cancelled && revision === settingsRevision.current;
+
     async function loadInitialSettings() {
       const device = readDevicePreferences(userId);
       let stored: Partial<Settings> = {};
       let serverAvailable = true;
 
       try {
-        stored = await api<Partial<Settings>>("/api/settings");
+        const response = await preferencesApi<Partial<Settings> | null>("/api/settings");
+        if (response && typeof response === "object" && !Array.isArray(response)) {
+          stored = response;
+        } else {
+          serverAvailable = false;
+        }
       } catch {
         serverAvailable = false;
       }
+      if (!isCurrent()) return;
 
       const currency = isCurrencyCode(stored.currency)
         ? stored.currency
@@ -850,34 +882,48 @@ export function Dashboard({ userId }: { userId: string }) {
       setShowLanguagePrompt(!hasSavedLanguage);
       if (hasSavedLanguage) saveDevicePreferences(userId, language, currency);
 
+      setCurrencyLoading(true);
       try {
-        await loadExchangeRate(currency);
+        const rate = await fetchExchangeRate(currency);
+        if (!isCurrent()) return;
+        setExchangeRate(rate);
         setSettings(nextSettings);
       } catch {
+        if (!isCurrent()) return;
         setSettings({ ...nextSettings, currency: "USD" });
         setExchangeRate({ currency: "USD", rate: 1 });
         if (hasSavedLanguage) saveDevicePreferences(userId, language, "USD");
         effectiveCurrency = "USD";
+      } finally {
+        if (isCurrent()) setCurrencyLoading(false);
       }
 
       if (serverAvailable && !isLanguageCode(stored.language) && hasSavedLanguage) {
-        void api("/api/settings", {
+        void preferencesApi("/api/settings", {
           method: "PUT",
           body: JSON.stringify({ language, currency: effectiveCurrency })
         }).catch(() => undefined);
       }
 
-      if (window.sessionStorage.getItem(`portfolio-backup-restored:${userId}`) === "true") {
-        window.sessionStorage.removeItem(`portfolio-backup-restored:${userId}`);
-        setNotice({ tone: "success", message: translate(language, "backupRestored") });
+      try {
+        if (window.sessionStorage.getItem(`portfolio-backup-restored:${userId}`) === "true") {
+          window.sessionStorage.removeItem(`portfolio-backup-restored:${userId}`);
+          setNotice({ tone: "success", message: translate(language, "backupRestored") });
+        }
+      } catch {
+        // The optional restore notice cannot block startup in restricted browsers.
       }
     }
 
     void loadInitialSettings();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  useEffect(() => {
     loadSummary();
     const id = window.setInterval(() => loadSummary(true), 30 * 60 * 1000);
     return () => window.clearInterval(id);
-  }, [loadExchangeRate, loadSummary, t, userId]);
+  }, [loadSummary]);
 
   useEffect(() => {
     try {

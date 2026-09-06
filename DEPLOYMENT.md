@@ -102,11 +102,11 @@ Both `pnpm dev` and `npm run dev` apply database migrations before starting Next
 ```bash
 pnpm lint
 pnpm exec tsc --noEmit
-pnpm exec playwright install chromium
+pnpm exec playwright install chromium webkit
 pnpm test
 pnpm build
 ```
 
-Browser tests start an isolated in-memory PostgreSQL database using PGlite. They verify anonymous access is blocked, users cannot modify each other's records, backup restore preserves cost basis and ownership, expired sessions are rejected, and onboarding/sign-out work in desktop and phone viewports. Tests use local database sessions; the real GitHub OAuth round trip must be checked after configuring the OAuth app on your actual domain.
+Browser tests start an isolated in-memory PostgreSQL database using PGlite. They verify anonymous access is blocked, users cannot modify each other's records, backup restore preserves cost basis and ownership, expired sessions are rejected, and onboarding/sign-out work in desktop Chrome, mobile Chrome, and mobile WebKit (Safari engine). Onboarding tests include restricted storage, failed saves, stalled requests, and late exchange-rate responses. Tests use local database sessions; the real GitHub OAuth round trip must be checked after configuring the OAuth app on your actual domain.
 
 References: [Vercel GitHub integration](https://vercel.com/docs/git/vercel-for-github), [Auth.js deployment](https://authjs.dev/getting-started/deployment), [Neon connection pooling](https://neon.com/docs/connect/connection-pooling).
