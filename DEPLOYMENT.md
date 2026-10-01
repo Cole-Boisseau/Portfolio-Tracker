@@ -1,105 +1,56 @@
 # Publish My Portfolio
 
-GitHub stores the code. Vercel runs the Next.js website, Neon stores PostgreSQL data, and Auth.js handles GitHub sign-in. GitHub Pages cannot run this server-backed app.
+Vercel runs the Next.js website and server routes. Neon stores PostgreSQL data independently of the Codespace. Sign-in uses a username and password, with an optional Google button. GitHub is used to store source code, not to sign in to the website.
 
-## 1. Create the accounts
+## Production configuration
 
-1. Visit https://vercel.com/signup, select the personal Hobby plan, and continue with your `Cole-Boisseau` GitHub account.
-2. Grant Vercel access to `Cole-Boisseau/Portfolio-Tracker`.
-3. Visit https://console.neon.tech/signup and continue with the same GitHub account. Choose the Free plan.
-4. Create a Neon project called `portfolio-tracker`. PostgreSQL 16 is suitable. Pick a region near your Vercel deployment, ideally in the same cloud region.
+Keep the existing Vercel project and Neon database. Use a pooled Neon connection as `DATABASE_URL` and a direct connection as `DIRECT_URL`, both with `sslmode=require`.
 
-Neon does not need access to your GitHub repository. Avoid creating a second database through the Vercel marketplace if you already created one in Neon.
+Required Vercel Production environment variables:
 
-## 2. Connect the database
+- `DATABASE_URL`, `DIRECT_URL`
+- `AUTH_SECRET`: at least 32 random characters; keep it unchanged across deployments
+- `POLYGON_API_KEY`, `COINGECKO_API_KEY`
+- `AUTH_TRUST_HOST=true`, `MARKET_PROVIDER=polygon`
 
-In Neon's project dashboard, select **Connect** and the production branch/database:
+`vercel.json` installs pnpm dependencies and runs `pnpm run build:vercel`. This validates configuration, applies committed migrations, generates Prisma, and builds Next.js. Use Node.js 22.x. Never commit secrets or prefix them with `NEXT_PUBLIC_`.
 
-- Enable connection pooling and copy the connection string for `DATABASE_URL`.
-- Disable connection pooling and copy the direct connection string for `DIRECT_URL`.
-- Keep `sslmode=require` in both URLs. Never post these strings or commit them to GitHub.
+Users select **Create an account**, choose a unique username and a password of 12–128 characters, and then sign in. Usernames are case-insensitive. Passwords are salted and hashed with scrypt; repeated attempts are limited in the database. Auth.js uses encrypted JWT sessions lasting up to seven days. Signing out removes the browser session. Portfolios remain private to each user. Google-only users sign in through Google; no password is assigned to them automatically. Password-reset email delivery is not configured.
 
-The app uses pooled connections for requests and the direct connection for migrations. A new database starts empty. No sample or existing personal data is published automatically.
+## Add Google sign-in later under your preferred email
 
-## 3. Configure GitHub sign-in
+1. Sign in to https://console.cloud.google.com/ using the Google account you want to own the setup. Accept its terms yourself and create a project, such as Portfolio Tracker. Basic Google OAuth setup does not require buying a paid hosting plan.
+2. Open **Google Auth Platform** (or APIs & Services > OAuth consent screen). Configure the app's branding and choose an External audience if people outside a Google Workspace organization need to sign in. Use your preferred email for support and developer contact.
+3. Request only the basic sign-in scopes: `openid`, email, and profile. Gmail, Drive, and other API access are unnecessary.
+4. Under **Clients**, create an OAuth client with application type **Web application**.
+5. Add this Authorized JavaScript origin:
+   `https://portfolio-tracker-six-flame.vercel.app`
+6. Add this exact Authorized redirect URI:
+   `https://portfolio-tracker-six-flame.vercel.app/api/auth/callback/google`
+7. Copy the client ID and client secret into this Vercel project's Production environment variables as `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`. Keep the secret out of Git, screenshots, and chat. GitHub OAuth credentials cannot be reused for Google.
+8. Redeploy the Vercel project. The Google button automatically becomes active when both variables are configured.
+9. While Google's OAuth app is in Testing, add the intended Google accounts as test users. Before general release, switch the audience to Production and complete any review Google requests. Test Google login on the exact production domain above.
 
-1. In Vercel choose **Add New > Project**, import `Portfolio-Tracker`, and note the project name and intended production domain. Use the actual assigned domain, not a guessed name if it is taken.
-2. Open https://github.com/settings/developers and select **OAuth Apps > New OAuth App**.
-3. Name it `My Portfolio`.
-4. Set **Homepage URL** to your production domain, for example `https://your-project.vercel.app`.
-5. Set **Authorization callback URL** to that same domain followed by `/api/auth/callback/github`.
-6. Register the application and generate a client secret. These become `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET` below. They are not your GitHub password, a personal access token, or your Polygon key.
+You can own the Google Cloud project with one Google account while visitors sign in with their own accounts. If you change the website domain, update the OAuth origin and redirect URI to match it exactly. For local development, create a separate development client or add `http://localhost:3000/api/auth/callback/google` to an appropriate development client. Do not send production database credentials to untrusted preview deployments.
 
-Use a separate OAuth app for localhost or Codespaces. GitHub OAuth apps have one callback URL. Production sign-in should always use the stable production domain; arbitrary Vercel preview URLs need their own OAuth configuration.
+Google setup is optional during deployment: a missing Google client disables that button and displays a setup message. Username/password login continues to work.
 
-## 4. Add Vercel environment variables
+References: https://authjs.dev/getting-started/providers/google and https://developers.google.com/identity/protocols/oauth2/web-server
 
-In the import screen's **Environment Variables**, or the project's **Settings > Environment Variables**, add these for **Production**:
+## Codespace / local backend
 
-| Name | Value |
-| --- | --- |
-| `DATABASE_URL` | Neon pooled connection string |
-| `DIRECT_URL` | Neon direct connection string |
-| `AUTH_GITHUB_ID` | GitHub OAuth client ID |
-| `AUTH_GITHUB_SECRET` | GitHub OAuth client secret |
-| `AUTH_SECRET` | Random secret generated below |
-| `AUTH_TRUST_HOST` | `true` |
-| `POLYGON_API_KEY` | Your existing stock-data key |
-| `COINGECKO_API_KEY` | Your existing CoinGecko Demo key |
-| `MARKET_PROVIDER` | `polygon` |
+The devcontainer supplies a separate PostgreSQL 16 database. It is separate from Neon production. Set `AUTH_SECRET` and your market keys in Codespaces secrets, or use the ignored `.env.local` for local development. Optional Google credentials can be added later. After adding secrets, stop/start the Codespace to load them.
 
-Generate `AUTH_SECRET` in your own terminal:
-
-```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
-```
-
-Keep the generated secret unchanged between deployments so existing sessions continue to work. Do not add `NEXT_PUBLIC_` to secret names. Leave `AUTH_URL` unset on Vercel unless explicitly overriding its detected origin.
-
-GitHub Codespaces secrets are separate from Vercel's environment variables. The two market keys already added to Codespaces must also be added in Vercel. Do not use your production database for automatic preview deployments: configure a separate Neon development branch and OAuth app for previews, or leave previews unconfigured. Builds stop with a list of missing environment variable names rather than publishing a broken application.
-
-## 5. Deploy
-
-Keep **Framework Preset: Next.js** and **Root Directory: ./ **. `vercel.json` supplies the install and build commands. Select Node.js 22.x in the project's settings.
-
-Click **Deploy**. The deployment validates configuration, applies the committed PostgreSQL migration, generates Prisma, and builds Next.js. After it completes, open the production domain and sign in with GitHub. Future pushes to `main` can deploy automatically through Vercel's GitHub integration.
-
-If the final assigned domain differs from step 3, update both URLs in the GitHub OAuth app before signing in. Changing environment variables requires a new deployment.
-
-## 6. Transfer your existing portfolio
-
-On the old app, use **Settings > Backup & Restore > Download Backup** before replacing the old setup. Alternatively, from the checkout containing `prisma/dev.db`, use Node.js 22.13 or later:
-
-```bash
-npm run db:export-sqlite
-```
-
-This reads the SQLite database without modifying it and creates a JSON file under the ignored `backups/` directory. An optional source/output pair can be passed:
-
-```bash
-npm run db:export-sqlite -- prisma/dev.db backups/my-portfolio.json
-```
-
-Download that file from Codespaces if needed. Sign in to the new website with your account, open **Settings > Backup & Restore**, and restore it. Restore replaces only the signed-in user's holdings, watchlist, and preferences. The original share quantities, total invested, purchase dates, and split adjustments are retained. Browser-only favorites are included by the old app's download, but cannot be read from SQLite by the command.
-
-Keep the old SQLite database and backup until you have checked the restored portfolio. The old SQLite migrations are archived in `prisma/legacy`; they must not be applied to PostgreSQL.
-
-## Codespaces and local development
-
-The updated dev-container includes its own PostgreSQL 16 service with a persistent Docker volume. It is separate from Neon production. For an existing Codespace: export your portfolio, pull `main`, and choose **Codespaces: Rebuild Container** from the command palette. Preserve/export data before deleting a Codespace or its database volume.
-
-Add `AUTH_SECRET`, `AUTH_GITHUB_ID`, and `AUTH_GITHUB_SECRET` as Codespaces secrets, alongside the existing market keys. Use a development GitHub OAuth app whose callback is `https://YOUR-CODESPACE-3000.app.github.dev/api/auth/callback/github`. Set its homepage to the same forwarded origin. Stop/start the Codespace after adding secrets. Use the forwarded port URL in a full browser and keep its visibility private.
-
-```bash
+```sh
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Both `pnpm dev` and `npm run dev` apply database migrations before starting Next.js. Outside Codespaces, create `.env.local` from `.env.example`, set your development PostgreSQL URLs and OAuth credentials, and run the same commands. Keep production and development databases separate.
+The dev command applies migrations before starting Next.js. Codespace port 3000 can remain private. The Vercel site and Neon database continue independently after a Codespace is stopped or deleted.
 
 ## Verification
 
-```bash
+```sh
 pnpm lint
 pnpm exec tsc --noEmit
 pnpm exec playwright install chromium webkit
@@ -107,6 +58,8 @@ pnpm test
 pnpm build
 ```
 
-Browser tests start an isolated in-memory PostgreSQL database using PGlite. They verify anonymous access is blocked, users cannot modify each other's records, backup restore preserves cost basis and ownership, expired sessions are rejected, and onboarding/sign-out work in desktop Chrome, mobile Chrome, and mobile WebKit (Safari engine). Onboarding tests include restricted storage, failed saves, stalled requests, and late exchange-rate responses. Tests use local database sessions; the real GitHub OAuth round trip must be checked after configuring the OAuth app on your actual domain.
+Tests use isolated in-memory PostgreSQL through PGlite, never the production database. They check anonymous access, registration, password login, incorrect credentials, duplicate usernames, expired sessions, private portfolios, backup restore, sign-out, and responsive onboarding.
 
-References: [Vercel GitHub integration](https://vercel.com/docs/git/vercel-for-github), [Auth.js deployment](https://authjs.dev/getting-started/deployment), [Neon connection pooling](https://neon.com/docs/connect/connection-pooling).
+## Transfer an old portfolio
+
+Keep the recovery archive until you have checked your restored portfolio. Sign in to the new website, open Settings > Backup & Restore, and restore a portfolio backup. The existing repository also provides `npm run db:export-sqlite` for a nonempty old SQLite database under `prisma/dev.db`; it writes JSON into the ignored `backups/` directory. Legacy SQLite migrations remain in `prisma/legacy` and must not be applied to PostgreSQL.

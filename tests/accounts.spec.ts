@@ -1,13 +1,15 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { encode } from "next-auth/jwt";
 
 // PGlite multiplexes clients over one connection, so disable persistent prepared statements.
 const prisma = new PrismaClient({ datasources: { db: { url: "postgresql://postgres:postgres@127.0.0.1:15432/postgres?connection_limit=1&pgbouncer=true" } } });
 const users = ["test-alice", "test-bob"];
 
-async function login(context: BrowserContext, user = "test-alice") {
+async function login(context: BrowserContext, user = "test-alice", maxAge = 3600) {
+  const value = await encode({ token: { sub: user }, secret: "local-integration-tests-only-not-a-deployment-secret", salt: "authjs.session-token", maxAge });
   await context.addCookies([{
-    name: "authjs.session-token", value: `session-${user}`,
+    name: "authjs.session-token", value,
     domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Lax"
   }]);
 }
@@ -15,11 +17,6 @@ async function login(context: BrowserContext, user = "test-alice") {
 test.beforeEach(async () => {
   for (const id of users) {
     await prisma.user.upsert({ where: { id }, create: { id, name: id, email: `${id}@example.test` }, update: {} });
-    await prisma.session.upsert({
-      where: { sessionToken: `session-${id}` },
-      create: { sessionToken: `session-${id}`, userId: id, expires: new Date(Date.now() + 3600_000) },
-      update: { expires: new Date(Date.now() + 3600_000) }
-    });
     await prisma.positionLot.deleteMany({ where: { userId: id } });
     await prisma.watchlistItem.deleteMany({ where: { userId: id } });
     await prisma.appSetting.deleteMany({ where: { userId: id } });
@@ -35,7 +32,9 @@ test("all portfolio and market routes reject anonymous requests", async ({ reque
   }
   await page.goto("/");
   await expect(page).toHaveURL(/\/login$/);
-  await expect(page.getByRole("button", { name: "Continue with GitHub" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
 });
 
 test("purchases, watchlists, details, and settings are private to their owner", async ({ context, browser }) => {
@@ -130,7 +129,7 @@ test("cross-site mutations and expired sessions are rejected", async ({ context 
   await login(context);
   const denied = await context.request.put("/api/settings", { headers: { "sec-fetch-site": "cross-site" }, data: { language: "fr" } });
   expect(denied.status()).toBe(403);
-  await prisma.session.update({ where: { sessionToken: "session-test-alice" }, data: { expires: new Date(0) } });
+  await login(context, "test-alice", -60);
   expect((await context.request.get("/api/lots")).status()).toBe(401);
 });
 
