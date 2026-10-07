@@ -62,7 +62,8 @@ async function coinGeckoFetch<T>(path: string): Promise<T> {
         accept: "application/json",
         "x-cg-demo-api-key": key
       },
-      cache: "no-store"
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000)
     });
   } catch {
     throw new MarketDataError("network", "CoinGecko could not be reached. Check your connection and try again.");

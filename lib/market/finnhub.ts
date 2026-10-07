@@ -51,7 +51,7 @@ async function finnhubFetch<T>(path: string, params: Record<string, string | num
 
   let response: Response;
   try {
-    response = await fetch(url, { next: { revalidate: 0 } });
+    response = await fetch(url, { next: { revalidate: 0 }, signal: AbortSignal.timeout(10_000) });
   } catch {
     throw new MarketDataError("network", "Unable to reach Finnhub right now. Check your connection and try again.");
   }

@@ -42,7 +42,7 @@ async function fetchRate(currency: CurrencyCode): Promise<ExchangeRate> {
   let response: Response;
   try {
     const query = new URLSearchParams({ base: "USD", quotes: currency });
-    response = await fetch(`${baseUrl}/rates?${query.toString()}`, { cache: "no-store" });
+    response = await fetch(`${baseUrl}/rates?${query.toString()}`, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
   } catch {
     throw new ExchangeRateError("Currency conversion is temporarily unavailable. Please try again.");
   }
