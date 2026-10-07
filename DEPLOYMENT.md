@@ -15,6 +15,8 @@ Required Vercel Production environment variables:
 
 `vercel.json` installs pnpm dependencies and runs `pnpm run build:vercel`. This validates configuration, applies committed migrations, generates Prisma, and builds Next.js. Use Node.js 22.x. Never commit secrets or prefix them with `NEXT_PUBLIC_`.
 
+The deployment check rejects non-PostgreSQL connections, Neon connections without SSL, missing trusted-proxy configuration, demo prices, and incomplete Google credentials. Use a separate database and secrets for Preview deployments; never point untrusted previews at the production database. Local/Codespaces secrets are not automatically copied to Vercel.
+
 Users select **Create an account**, choose a unique username and a password of 12–128 characters, and then sign in. Usernames are case-insensitive. Passwords are salted and hashed with scrypt; repeated attempts are limited in the database. Auth.js uses encrypted JWT sessions lasting up to seven days. Signing out removes the browser session. Portfolios remain private to each user. Google-only users sign in through Google; no password is assigned to them automatically. Password-reset email delivery is not configured.
 
 ## Add Google sign-in later under your preferred email
@@ -52,6 +54,8 @@ The dev command applies migrations before starting Next.js. Codespace port 3000 
 
 ```sh
 pnpm lint
+pnpm test:deploy
+pnpm test:backend
 pnpm exec tsc --noEmit
 pnpm exec playwright install chromium webkit
 pnpm test
@@ -59,6 +63,12 @@ pnpm build
 ```
 
 Tests use isolated in-memory PostgreSQL through PGlite, never the production database. They check anonymous access, registration, password login, incorrect credentials, duplicate usernames, expired sessions, private portfolios, backup restore, sign-out, and responsive onboarding.
+
+GitHub Actions runs these checks and a production build for pull requests and pushes to `main`, using only isolated test data and no production secrets. It does not deploy the app or migrate the production database.
+
+Authentication counters expire after 15 minutes and old records are removed on subsequent authentication attempts. Their timestamps remain in UTC even if the database uses another timezone. External stock, cryptocurrency, and exchange-rate requests time out after 10 seconds and use the existing error/cached-data handling.
+
+Before sharing the production site, verify registration, sign-in/sign-out, saving and reloading holdings, backups, and live stock/crypto data on the actual Vercel domain. Verify Google sign-in separately if enabled. Passing configuration checks proves that settings are present and well formed; it does not verify provider credentials or production connectivity.
 
 ## Transfer an old portfolio
 

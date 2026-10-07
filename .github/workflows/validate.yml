@@ -1,0 +1,37 @@
+name: Validate web app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm test:deploy
+      - run: pnpm test:backend
+      - run: pnpm exec playwright install --with-deps chromium webkit
+      - run: pnpm test
+      - run: pnpm build
+        env:
+          # Build checks need no live database or real provider credentials.
+          DATABASE_URL: postgresql://test:test@127.0.0.1:5432/ci
+          DIRECT_URL: postgresql://test:test@127.0.0.1:5432/ci
+          AUTH_SECRET: isolated-ci-build-secret-not-for-deployment
+          AUTH_TRUST_HOST: "true"

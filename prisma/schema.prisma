@@ -27,6 +27,8 @@ model AuthAttempt {
   key     String   @id
   count   Int
   resetAt DateTime
+
+  @@index([resetAt])
 }
 
 model Account {

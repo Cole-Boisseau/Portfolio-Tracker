@@ -16,6 +16,8 @@
     "db:export-sqlite": "node scripts/export-sqlite.mjs",
     "lint": "eslint .",
     "test": "playwright test",
+    "test:deploy": "node --test scripts/check-env.test.mjs",
+    "test:backend": "node --import tsx --test scripts/auth-rate-limit.test.mjs",
     "check:deploy": "node scripts/check-env.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

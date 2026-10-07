@@ -31,17 +31,22 @@ export async function checkPassword(password: string, hash?: string | null) {
 export async function allowAuthAttempt(username: string, requestHeaders: Headers, registration = false) {
   const secret = process.env.AUTH_SECRET;
   if (!secret) return false;
-  const ip = requestHeaders.get("x-forwarded-for")?.split(",")[0].trim() || "unknown";
+  const forwarded = process.env.VERCEL
+    ? requestHeaders.get("x-vercel-forwarded-for") || requestHeaders.get("x-forwarded-for")
+    : requestHeaders.get("x-forwarded-for");
+  const ip = forwarded?.split(",")[0].trim().slice(0, 128) || "unknown";
+  // Prisma stores timestamps without a zone in UTC. Keep raw SQL independent of the database timezone.
+  await prisma.$executeRaw`DELETE FROM "AuthAttempt" WHERE "resetAt" < timezone('UTC', now())`;
   const buckets = registration ? [[`register:${ip}`, 20] as const]
-    : [[`login-user:${username}`, 20] as const, [`login-ip:${ip}`, 100] as const];
+    : [[`login-ip:${ip}`, 100] as const, [`login-user:${username}`, 20] as const];
   for (const [identifier, limit] of buckets) {
     const key = createHmac("sha256", secret).update(identifier).digest("hex");
     const rows = await prisma.$queryRaw<Array<{ count: number }>>`
       INSERT INTO "AuthAttempt" ("key", "count", "resetAt")
-      VALUES (${key}, 1, NOW() + INTERVAL '15 minutes')
+      VALUES (${key}, 1, timezone('UTC', now()) + INTERVAL '15 minutes')
       ON CONFLICT ("key") DO UPDATE SET
-        "count" = CASE WHEN "AuthAttempt"."resetAt" <= NOW() THEN 1 ELSE "AuthAttempt"."count" + 1 END,
-        "resetAt" = CASE WHEN "AuthAttempt"."resetAt" <= NOW() THEN NOW() + INTERVAL '15 minutes' ELSE "AuthAttempt"."resetAt" END
+        "count" = CASE WHEN "AuthAttempt"."resetAt" <= timezone('UTC', now()) THEN 1 ELSE "AuthAttempt"."count" + 1 END,
+        "resetAt" = CASE WHEN "AuthAttempt"."resetAt" <= timezone('UTC', now()) THEN timezone('UTC', now()) + INTERVAL '15 minutes' ELSE "AuthAttempt"."resetAt" END
       RETURNING "count"`;
     if (rows[0].count > limit) return false;
   }
